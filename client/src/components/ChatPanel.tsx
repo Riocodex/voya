@@ -4,8 +4,8 @@ import type { ChatMessage, Place } from "../types";
 
 const STARTER_PROMPTS = [
   "What's the closest restaurant?",
+  "Best pizza place in Malta",
   "Find a coffee shop near me",
-  "Where can I buy a mattress?",
 ];
 
 interface ChatPanelProps {
@@ -25,7 +25,7 @@ export function ChatPanel({
     {
       role: "assistant",
       content:
-        "Hi, I'm Voya — your local guide. Ask me about restaurants, shops, or anything nearby and I'll find the closest options by real distance, not popularity.",
+        "Hi, I'm Voya — your local guide. Ask for the **closest** place near you, or the **best** rated — I'll know the difference. Try \"closest coffee shop\" or \"best pizza in Malta\".",
     },
   ]);
   const [input, setInput] = useState("");

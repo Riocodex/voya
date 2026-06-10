@@ -2,33 +2,56 @@ import OpenAI from "openai";
 import { searchNearbyPlaces } from "./places.js";
 import type { ChatMessage, ChatRequest, ChatResponse, Place } from "./types.js";
 
-const SYSTEM_PROMPT = `You are Voya, a friendly local guide that helps people find places near their exact location.
+const SYSTEM_PROMPT = `You are Voya, a friendly local guide that helps people find places.
 
-Rules:
-- Always recommend the CLOSEST matching place first when tool results are available.
-- Include walk time in minutes and approximate distance in meters.
-- If the closest place is more than 1km away, say so honestly.
-- Offer alternatives when multiple results exist, e.g. "If you don't like that, I have 2 others within 5 minutes."
-- Never invent places — only mention places returned by the search_nearby_places tool.
-- Be concise and conversational, like a helpful friend.
-- If no places are found, say so and suggest trying a broader query.`;
+You have TWO search modes — pick the right one every time:
+
+**CLOSEST mode (rank_by: "distance")** — use when the user wants proximity:
+- Words like: closest, nearest, near me, nearby, around me, walking distance
+- Examples: "closest pizza?", "nearest pharmacy", "coffee shop near me"
+- Recommend the FIRST result — it is sorted by true GPS distance
+- Mention walk time and distance
+
+**BEST mode (rank_by: "best")** — use when the user wants quality, not proximity:
+- Words like: best, top, highest rated, most popular, famous, recommended, must-try
+- Examples: "best pizza in Malta", "top rated sushi", "most popular cafe"
+- Recommend the FIRST result — it is sorted by rating and review count, NOT distance
+- Mention the rating and that it may be further away; include distance honestly
+- If they name a region (Malta, Valletta, Sliema, etc.), pass it as the "area" parameter
+
+General rules:
+- Never invent places — only use tool results
+- Offer 1–2 alternatives from the list when helpful
+- Be concise and conversational
+- If no results, suggest broadening the search`;
 
 const searchTool: OpenAI.Chat.Completions.ChatCompletionTool = {
   type: "function",
   function: {
     name: "search_nearby_places",
     description:
-      "Search for places near the user's current GPS location. Results are sorted by true distance.",
+      "Search for places. Use rank_by to match user intent: distance for closest/near me, best for quality/top-rated queries.",
     parameters: {
       type: "object",
       properties: {
         query: {
           type: "string",
           description:
-            'What to search for, e.g. "restaurant", "coffee shop", "mattress store", "pharmacy"',
+            'What to search for, e.g. "pizza restaurant", "coffee shop", "sushi"',
+        },
+        rank_by: {
+          type: "string",
+          enum: ["distance", "best"],
+          description:
+            '"distance" for closest/nearest/near me. "best" for highest rated, top, most popular, or best in a region.',
+        },
+        area: {
+          type: "string",
+          description:
+            'Optional region scope when user names a place, e.g. "Malta", "Valletta", "Sliema". Leave empty for near-me searches.',
         },
       },
-      required: ["query"],
+      required: ["query", "rank_by"],
     },
   },
 };
@@ -70,8 +93,16 @@ export async function handleChat(req: ChatRequest): Promise<ChatResponse> {
     for (const toolCall of assistantMessage.tool_calls) {
       if (toolCall.type !== "function") continue;
 
-      const args = JSON.parse(toolCall.function.arguments) as { query: string };
-      const result = await searchNearbyPlaces(args.query, req.lat, req.lng);
+      const args = JSON.parse(toolCall.function.arguments) as {
+        query: string;
+        rank_by?: "distance" | "best";
+        area?: string;
+      };
+
+      const result = await searchNearbyPlaces(args.query, req.lat, req.lng, {
+        rankBy: args.rank_by,
+        area: args.area,
+      });
       foundPlaces = result.places;
       searchNote = result.searchNote;
 
@@ -80,7 +111,12 @@ export async function handleChat(req: ChatRequest): Promise<ChatResponse> {
         tool_call_id: toolCall.id,
         content: JSON.stringify({
           places: foundPlaces,
+          rankBy: result.rankBy,
           searchNote: searchNote ?? null,
+          hint:
+            result.rankBy === "distance"
+              ? "Sorted closest-first by GPS distance."
+              : "Sorted by rating and reviews — NOT by distance.",
         }),
       });
     }

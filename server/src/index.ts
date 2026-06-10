@@ -8,12 +8,21 @@ import { searchNearbyPlaces } from "./places.js";
 import type { ChatRequest } from "./types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+
+const localEnvPath = path.resolve(__dirname, "../../.env");
+dotenv.config({ path: localEnvPath });
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
+const CLIENT_URL = process.env.CLIENT_URL;
 
-app.use(cors());
+app.use(
+  cors({
+    origin: CLIENT_URL
+      ? [CLIENT_URL, CLIENT_URL.replace(/\/$/, "")]
+      : true,
+  })
+);
 app.use(express.json());
 
 app.get("/api/health", (_req, res) => {
@@ -31,13 +40,16 @@ app.get("/api/places/test", async (req, res) => {
     const lat = Number(req.query.lat);
     const lng = Number(req.query.lng);
     const q = String(req.query.q ?? "restaurant");
+    const rankBy =
+      req.query.rankBy === "best" ? ("best" as const) : ("distance" as const);
+    const area = req.query.area ? String(req.query.area) : undefined;
 
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       res.status(400).json({ error: "lat and lng query params are required" });
       return;
     }
 
-    const result = await searchNearbyPlaces(q, lat, lng);
+    const result = await searchNearbyPlaces(q, lat, lng, { rankBy, area });
     res.json(result);
   } catch (err) {
     console.error(err);
@@ -70,6 +82,6 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Voya server running on http://localhost:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Voya server running on port ${PORT}`);
 });

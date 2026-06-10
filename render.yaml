@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: voya-api
+    runtime: node
+    rootDir: server
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GOOGLE_PLACES_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: MAPBOX_TOKEN
+        sync: false
+      - key: CLIENT_URL
+        sync: false

@@ -1,10 +1,18 @@
 import { haversine, walkMinutes } from "./utils/haversine.js";
 import type { Place } from "./types.js";
 
+export type RankBy = "distance" | "best";
+
+export interface SearchOptions {
+  rankBy?: RankBy;
+  area?: string;
+}
+
 const PLACES_URL = "https://places.googleapis.com/v1/places:searchText";
 const FIELD_MASK =
   "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount";
-const RADIUS_STEPS = [500, 1000, 2000, 5000];
+const RADIUS_STEPS_DISTANCE = [500, 1000, 2000, 5000];
+const RADIUS_STEPS_BEST = [3000, 10000, 25000];
 
 interface GooglePlace {
   id?: string;
@@ -18,13 +26,59 @@ interface GooglePlace {
 interface SearchResult {
   places: Place[];
   searchNote?: string;
+  rankBy: RankBy;
 }
 
 const cache = new Map<string, { expires: number; data: SearchResult }>();
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
-function cacheKey(query: string, lat: number, lng: number): string {
-  return `${query.toLowerCase()}|${lat.toFixed(4)}|${lng.toFixed(4)}`;
+const CLOSEST_PATTERN =
+  /\b(closest|nearest|near me|nearby|around me|close to me|close by|walking distance|shortest walk|next to me)\b/i;
+const BEST_PATTERN =
+  /\b(best|top|highest rated|most popular|famous|recommended|greatest|finest|must.?try|go.?to spot)\b/i;
+
+function cacheKey(
+  query: string,
+  lat: number,
+  lng: number,
+  rankBy: RankBy,
+  area?: string
+): string {
+  return `${query.toLowerCase()}|${lat.toFixed(4)}|${lng.toFixed(4)}|${rankBy}|${area ?? ""}`;
+}
+
+export function inferRankBy(query: string, explicit?: RankBy): RankBy {
+  if (explicit) return explicit;
+  if (CLOSEST_PATTERN.test(query)) return "distance";
+  if (BEST_PATTERN.test(query)) return "best";
+  return "distance";
+}
+
+function buildTextQuery(query: string, area?: string): string {
+  if (!area) return query;
+  const areaLower = area.toLowerCase();
+  if (query.toLowerCase().includes(areaLower)) return query;
+  return `${query} in ${area}`;
+}
+
+function qualityScore(place: Place): number {
+  const rating = place.rating ?? 0;
+  const reviews = place.userRatingCount ?? 0;
+  return rating * Math.log10(reviews + 10);
+}
+
+function sortPlaces(places: Place[], rankBy: RankBy): Place[] {
+  const sorted = [...places];
+  if (rankBy === "distance") {
+    sorted.sort((a, b) => a.distanceMeters - b.distanceMeters);
+  } else {
+    sorted.sort((a, b) => {
+      const scoreDiff = qualityScore(b) - qualityScore(a);
+      if (Math.abs(scoreDiff) > 0.01) return scoreDiff;
+      return (b.userRatingCount ?? 0) - (a.userRatingCount ?? 0);
+    });
+  }
+  return sorted;
 }
 
 async function textSearch(
@@ -32,7 +86,8 @@ async function textSearch(
   query: string,
   lat: number,
   lng: number,
-  radiusMeters: number
+  radiusMeters: number,
+  rankBy: RankBy
 ): Promise<GooglePlace[]> {
   const response = await fetch(PLACES_URL, {
     method: "POST",
@@ -49,7 +104,7 @@ async function textSearch(
           radius: radiusMeters,
         },
       },
-      rankPreference: "DISTANCE",
+      rankPreference: rankBy === "distance" ? "DISTANCE" : "RELEVANCE",
       maxResultCount: 20,
     }),
   });
@@ -85,21 +140,26 @@ function normalizePlaces(
         distanceMeters,
         walkMinutes: walkMinutes(distanceMeters),
       };
-    })
-    .sort((a, b) => a.distanceMeters - b.distanceMeters);
+    });
 }
 
 export async function searchNearbyPlaces(
   query: string,
   lat: number,
-  lng: number
+  lng: number,
+  options: SearchOptions = {}
 ): Promise<SearchResult> {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) {
     throw new Error("GOOGLE_PLACES_API_KEY is not configured");
   }
 
-  const key = cacheKey(query, lat, lng);
+  const rankBy = inferRankBy(query, options.rankBy);
+  const textQuery = buildTextQuery(query, options.area);
+  const radiusSteps =
+    rankBy === "distance" ? RADIUS_STEPS_DISTANCE : RADIUS_STEPS_BEST;
+
+  const key = cacheKey(textQuery, lat, lng, rankBy, options.area);
   const cached = cache.get(key);
   if (cached && cached.expires > Date.now()) {
     return cached.data;
@@ -108,21 +168,31 @@ export async function searchNearbyPlaces(
   let searchNote: string | undefined;
   let allPlaces: Place[] = [];
 
-  for (const radius of RADIUS_STEPS) {
-    const raw = await textSearch(apiKey, query, lat, lng, radius);
-    allPlaces = normalizePlaces(raw, lat, lng);
+  for (const radius of radiusSteps) {
+    const raw = await textSearch(apiKey, textQuery, lat, lng, radius, rankBy);
+    allPlaces = sortPlaces(normalizePlaces(raw, lat, lng), rankBy);
 
     if (allPlaces.length > 0) {
-      if (radius > RADIUS_STEPS[0]) {
-        searchNote = `Nothing within ${RADIUS_STEPS[0]}m — widened search to ${radius / 1000}km.`;
+      if (rankBy === "distance" && radius > radiusSteps[0]) {
+        searchNote = `Nothing within ${radiusSteps[0]}m — widened search to ${radius / 1000}km.`;
+      }
+      if (rankBy === "best" && radius > radiusSteps[0]) {
+        searchNote = `Searched wider across the area (${radius / 1000}km) for top-rated picks.`;
       }
       break;
     }
   }
 
+  if (rankBy === "best" && allPlaces.length > 0) {
+    searchNote =
+      searchNote ??
+      "Ranked by rating and reviews — not by distance.";
+  }
+
   const result: SearchResult = {
     places: allPlaces.slice(0, 5),
     searchNote,
+    rankBy,
   };
 
   cache.set(key, { expires: Date.now() + CACHE_TTL_MS, data: result });
