@@ -29,7 +29,8 @@ function App() {
           <h1 className="text-xl font-bold text-gray-900">Voya</h1>
           <p className="mt-2 text-red-600">{configError}</p>
           <p className="mt-2 text-sm text-gray-600">
-            Make sure the server is running and MAPBOX_TOKEN is set in .env
+            Deploy the API on Render, then add <code className="text-xs">VITE_API_URL</code> in
+            Vercel → Settings → Environment Variables and redeploy.
           </p>
         </div>
       </div>
