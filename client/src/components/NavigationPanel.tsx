@@ -40,7 +40,7 @@ export function NavigationPanel({
   const upcoming = route.steps.slice(1);
 
   return (
-    <div className="voya-slide-up pointer-events-auto absolute inset-x-0 bottom-0 z-20 mx-auto max-w-xl px-3 pb-3">
+    <div className="voya-slide-up pointer-events-auto absolute inset-x-0 bottom-0 z-20 mx-auto max-w-2xl px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <div className="overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/5">
         {/* Header: ETA + destination + mode switch */}
         <div className="flex items-center justify-between bg-voya-600 px-4 py-3 text-white">

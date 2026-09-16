@@ -68,59 +68,64 @@ function App() {
     setRouteError(null);
   };
 
+  const inJourney = Boolean(destination);
   const navigating = Boolean(destination && profile);
   const locationReady =
     status === "ready" || status === "denied" || status === "error";
 
   return (
     <div className="flex h-screen flex-col bg-gray-50">
-      <header className="flex shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
-        <div>
-          <h1 className="text-lg font-extrabold tracking-tight text-voya-900">
-            Voya
-          </h1>
-          <p className="text-xs text-gray-500">
-            AI map assistant · closest or best, your call
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {status === "loading" && (
-            <span className="text-xs text-gray-500">Locating…</span>
-          )}
-          {status === "ready" && (
-            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">
-              GPS active
-            </span>
-          )}
-          {(status === "denied" || status === "error") && (
-            <button
-              type="button"
-              onClick={requestLocation}
-              className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 hover:bg-amber-200"
-            >
-              Enable location
-            </button>
-          )}
-        </div>
-      </header>
+      {!inJourney && (
+        <header className="flex shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
+          <div>
+            <h1 className="text-lg font-extrabold tracking-tight text-voya-900">
+              Voya
+            </h1>
+            <p className="text-xs text-gray-500">
+              AI map assistant · closest or best, your call
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {status === "loading" && (
+              <span className="text-xs text-gray-500">Locating…</span>
+            )}
+            {status === "ready" && (
+              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">
+                GPS active
+              </span>
+            )}
+            {(status === "denied" || status === "error") && (
+              <button
+                type="button"
+                onClick={requestLocation}
+                className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 hover:bg-amber-200"
+              >
+                Enable location
+              </button>
+            )}
+          </div>
+        </header>
+      )}
 
-      {geoError && (
+      {!inJourney && geoError && (
         <div className="shrink-0 bg-amber-50 px-4 py-2 text-sm text-amber-800">
           {geoError}
         </div>
       )}
 
       <main className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <section className="flex h-[45vh] min-h-[280px] flex-col border-b border-gray-200 md:h-auto md:w-[40%] md:border-b-0 md:border-r">
-          <ChatPanel
-            lat={location.lat}
-            lng={location.lng}
-            locationReady={locationReady}
-            places={places}
-            onPlacesFound={setPlaces}
-            onStartJourney={startJourney}
-          />
-        </section>
+        {!inJourney && (
+          <section className="flex h-[45vh] min-h-[280px] flex-col border-b border-gray-200 md:h-auto md:w-[40%] md:border-b-0 md:border-r">
+            <ChatPanel
+              lat={location.lat}
+              lng={location.lng}
+              locationReady={locationReady}
+              places={places}
+              onPlacesFound={setPlaces}
+              onStartJourney={startJourney}
+            />
+          </section>
+        )}
 
         <section className="relative min-h-0 flex-1">
           {mapboxToken ? (

@@ -81,7 +81,7 @@ export function MapView({
         [Math.min(...lons), Math.min(...lats)],
         [Math.max(...lons), Math.max(...lats)],
       ],
-      { padding: { top: 90, bottom: 230, left: 60, right: 60 }, duration: 900 }
+      { padding: { top: 48, bottom: 260, left: 48, right: 48 }, duration: 900 }
     );
 
     return () => cancelAnimationFrame(raf);

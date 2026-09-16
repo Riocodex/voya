@@ -6,7 +6,7 @@ const DIRECT_MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as
   | undefined;
 
 export function hasApiBackend(): boolean {
-  return Boolean(API_BASE);
+  return true;
 }
 
 async function parseJsonResponse<T>(res: Response): Promise<T> {
@@ -27,9 +27,12 @@ async function parseJsonResponse<T>(res: Response): Promise<T> {
  * Ping the backend early so the (possibly sleeping) Render free-tier
  * instance cold-starts in the background while the user reads the UI.
  */
+function apiUrl(path: string): string {
+  return `${API_BASE}${path}`;
+}
+
 export function warmUpApi(): void {
-  if (!API_BASE) return;
-  fetch(`${API_BASE}/api/health`).catch(() => {
+  fetch(apiUrl("/api/health")).catch(() => {
     /* ignore — this is just a warm-up */
   });
 }
@@ -37,13 +40,7 @@ export function warmUpApi(): void {
 export async function fetchMapboxToken(): Promise<string> {
   if (DIRECT_MAPBOX_TOKEN) return DIRECT_MAPBOX_TOKEN;
 
-  if (!API_BASE) {
-    throw new Error(
-      "Map not configured. Set VITE_MAPBOX_TOKEN on Vercel (recommended) or VITE_API_URL to your Render API."
-    );
-  }
-
-  const res = await fetch(`${API_BASE}/api/config`);
+  const res = await fetch(apiUrl("/api/config"));
   const data = await parseJsonResponse<{ mapboxToken: string }>(res);
   if (!res.ok) throw new Error("Failed to load map config");
   if (!data.mapboxToken) throw new Error("Mapbox token is missing on the server");
@@ -56,13 +53,7 @@ export async function sendChatMessage(
   lng: number,
   history: ChatMessage[]
 ): Promise<ChatResponse> {
-  if (!API_BASE) {
-    throw new Error(
-      "Chat requires the backend. Deploy server/ on Render and set VITE_API_URL on Vercel."
-    );
-  }
-
-  const res = await fetch(`${API_BASE}/api/chat`, {
+  const res = await fetch(apiUrl("/api/chat"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message, lat, lng, history }),
