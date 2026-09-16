@@ -1,6 +1,13 @@
 import type { ChatMessage, ChatResponse } from "./types";
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+const DIRECT_MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as
+  | string
+  | undefined;
+
+export function hasApiBackend(): boolean {
+  return Boolean(API_BASE);
+}
 
 async function parseJsonResponse<T>(res: Response): Promise<T> {
   const text = await res.text();
@@ -16,13 +23,23 @@ async function parseJsonResponse<T>(res: Response): Promise<T> {
   }
 }
 
+/**
+ * Ping the backend early so the (possibly sleeping) Render free-tier
+ * instance cold-starts in the background while the user reads the UI.
+ */
+export function warmUpApi(): void {
+  if (!API_BASE) return;
+  fetch(`${API_BASE}/api/health`).catch(() => {
+    /* ignore — this is just a warm-up */
+  });
+}
+
 export async function fetchMapboxToken(): Promise<string> {
-  const directToken = import.meta.env.VITE_MAPBOX_TOKEN;
-  if (directToken) return directToken;
+  if (DIRECT_MAPBOX_TOKEN) return DIRECT_MAPBOX_TOKEN;
 
   if (!API_BASE) {
     throw new Error(
-      "Backend not configured. Set VITE_API_URL on Vercel (your Render API URL), or set VITE_MAPBOX_TOKEN for the map only."
+      "Map not configured. Set VITE_MAPBOX_TOKEN on Vercel (recommended) or VITE_API_URL to your Render API."
     );
   }
 

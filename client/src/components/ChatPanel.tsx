@@ -12,20 +12,27 @@ interface ChatPanelProps {
   lat: number;
   lng: number;
   locationReady: boolean;
+  places: Place[];
   onPlacesFound: (places: Place[]) => void;
+  onStartJourney: (place: Place) => void;
 }
+
+const JOURNEY_INTENT =
+  /\b(start (the )?journey|take me there|let'?s go|navigate|directions|start (walking|driving|cycling)|guide me|go there)\b/i;
 
 export function ChatPanel({
   lat,
   lng,
   locationReady,
+  places,
   onPlacesFound,
+  onStartJourney,
 }: ChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: "assistant",
       content:
-        "Hi, I'm Voya — your local guide. Ask for the **closest** place near you, or the **best** rated — I'll know the difference. Try \"closest coffee shop\" or \"best pizza in Malta\".",
+        "Hi, I'm Voya — your local guide. Ask for the **closest** place or the **best** rated, tap a pin to see details, then say \"start journey\" (or hit Start journey) and I'll route you there by car, foot, or bike.",
     },
   ]);
   const [input, setInput] = useState("");
@@ -48,6 +55,21 @@ export function ChatPanel({
 
     setError(null);
     setInput("");
+
+    // If the user asks to go, launch navigation to the last top result.
+    if (JOURNEY_INTENT.test(trimmed) && places.length > 0) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "user", content: trimmed },
+        {
+          role: "assistant",
+          content: `Starting your journey to ${places[0].name}. Pick a travel mode on the map — drive, walk, or cycle.`,
+        },
+      ]);
+      onStartJourney(places[0]);
+      return;
+    }
+
     setLoading(true);
 
     const userMessage: ChatMessage = { role: "user", content: trimmed };
