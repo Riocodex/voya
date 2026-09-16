@@ -3,7 +3,7 @@ import { fetchMapboxToken, warmUpApi } from "./api";
 import { ChatPanel } from "./components/ChatPanel";
 import { ModeSelector } from "./components/ModeSelector";
 import { NavigationPanel } from "./components/NavigationPanel";
-import { getRoute } from "./directions";
+import { getRoute, distanceToRouteMeters, offRouteThreshold, remainingSteps } from "./directions";
 import { useGeolocation } from "./hooks/useGeolocation";
 import type { Place, Route, TravelProfile } from "./types";
 
@@ -22,10 +22,18 @@ function App() {
   const [profile, setProfile] = useState<TravelProfile | null>(null);
   const [route, setRoute] = useState<Route | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
+  const [rerouting, setRerouting] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
 
   const locationRef = useRef(location);
   locationRef.current = location;
+  const lastRerouteAt = useRef(0);
+  const offRouteHits = useRef(0);
+
+  const inJourney = Boolean(destination);
+  const navigating = Boolean(destination && profile);
+  const locationReady =
+    status === "ready" || status === "denied" || status === "error";
 
   useEffect(() => {
     warmUpApi();
@@ -43,7 +51,12 @@ function App() {
     setRouteLoading(true);
     setRouteError(null);
     getRoute(profile, locationRef.current, destination, mapboxToken)
-      .then((r) => !cancelled && setRoute(r))
+      .then((r) => {
+        if (cancelled) return;
+        setRoute(r);
+        lastRerouteAt.current = Date.now();
+        offRouteHits.current = 0;
+      })
       .catch((err) => {
         if (!cancelled)
           setRouteError(err instanceof Error ? err.message : "Route error");
@@ -53,6 +66,46 @@ function App() {
       cancelled = true;
     };
   }, [destination, profile, mapboxToken]);
+
+  // Recalculate if the user wanders off the drawn route.
+  useEffect(() => {
+    if (!navigating || !destination || !profile || !mapboxToken || !route) return;
+
+    const threshold = offRouteThreshold(profile, location.accuracy);
+    const dist = distanceToRouteMeters(location, route.geometry.coordinates);
+
+    if (dist <= threshold) {
+      offRouteHits.current = 0;
+      return;
+    }
+
+    offRouteHits.current += 1;
+    const now = Date.now();
+    if (offRouteHits.current < 2) return;
+    if (now - lastRerouteAt.current < 8000) return;
+    if (rerouting || routeLoading) return;
+
+    lastRerouteAt.current = now;
+    setRerouting(true);
+    getRoute(profile, location, destination, mapboxToken)
+      .then((r) => {
+        setRoute(r);
+        offRouteHits.current = 0;
+      })
+      .catch(() => {
+        /* keep the old route; try again on the next GPS tick */
+      })
+      .finally(() => setRerouting(false));
+  }, [
+    location,
+    navigating,
+    destination,
+    profile,
+    mapboxToken,
+    route,
+    rerouting,
+    routeLoading,
+  ]);
 
   const startJourney = (place: Place) => {
     setRoute(null);
@@ -66,31 +119,36 @@ function App() {
     setProfile(null);
     setRoute(null);
     setRouteError(null);
+    setRerouting(false);
   };
 
-  const inJourney = Boolean(destination);
-  const navigating = Boolean(destination && profile);
-  const locationReady =
-    status === "ready" || status === "denied" || status === "error";
-
   return (
-    <div className="flex h-screen flex-col bg-gray-50">
+    <div className="flex h-screen flex-col bg-[#070b14] text-white">
       {!inJourney && (
-        <header className="flex shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
-          <div>
-            <h1 className="text-lg font-extrabold tracking-tight text-voya-900">
-              Voya
-            </h1>
-            <p className="text-xs text-gray-500">
-              AI map assistant · closest or best, your call
-            </p>
+        <header className="flex shrink-0 items-center justify-between border-b border-white/10 bg-[#0b1220]/80 px-4 py-3 backdrop-blur-xl">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 to-indigo-500 text-[#0b1220] shadow-[0_0_18px_rgba(56,189,248,0.5)]">
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.2">
+                <path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11z" strokeLinejoin="round" />
+                <circle cx="12" cy="10" r="2.4" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-lg font-extrabold tracking-tight">Voya</h1>
+              <p className="text-[11px] text-white/45">
+                AI map · closest or best, your call
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {status === "loading" && (
-              <span className="text-xs text-gray-500">Locating…</span>
+              <span className="rounded-full bg-white/8 px-2.5 py-1 text-[11px] text-white/55 ring-1 ring-white/10">
+                Locating…
+              </span>
             )}
             {status === "ready" && (
-              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">
+              <span className="flex items-center gap-1.5 rounded-full bg-emerald-400/15 px-2.5 py-1 text-[11px] font-medium text-emerald-300 ring-1 ring-emerald-400/20">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
                 GPS active
               </span>
             )}
@@ -98,7 +156,7 @@ function App() {
               <button
                 type="button"
                 onClick={requestLocation}
-                className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 hover:bg-amber-200"
+                className="rounded-full bg-amber-400/15 px-2.5 py-1 text-[11px] text-amber-300 ring-1 ring-amber-400/20 hover:bg-amber-400/25"
               >
                 Enable location
               </button>
@@ -108,14 +166,14 @@ function App() {
       )}
 
       {!inJourney && geoError && (
-        <div className="shrink-0 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+        <div className="shrink-0 bg-amber-400/10 px-4 py-2 text-sm text-amber-200">
           {geoError}
         </div>
       )}
 
       <main className="flex min-h-0 flex-1 flex-col md:flex-row">
         {!inJourney && (
-          <section className="flex h-[45vh] min-h-[280px] flex-col border-b border-gray-200 md:h-auto md:w-[40%] md:border-b-0 md:border-r">
+          <section className="flex h-[45vh] min-h-[280px] flex-col border-b border-white/10 bg-[#0b1220] md:h-auto md:w-[38%] md:max-w-md md:border-b-0 md:border-r">
             <ChatPanel
               lat={location.lat}
               lng={location.lng}
@@ -131,7 +189,7 @@ function App() {
           {mapboxToken ? (
             <Suspense
               fallback={
-                <div className="flex h-full items-center justify-center bg-gray-100 text-gray-500">
+                <div className="flex h-full items-center justify-center bg-[#0b1220] text-white/50">
                   Loading map…
                 </div>
               }
@@ -148,11 +206,11 @@ function App() {
               />
             </Suspense>
           ) : mapError ? (
-            <div className="flex h-full items-center justify-center bg-gray-50 p-6">
-              <div className="max-w-md rounded-xl bg-white p-6 shadow-lg">
-                <p className="font-semibold text-gray-900">Map unavailable</p>
-                <p className="mt-2 text-sm text-red-600">{mapError}</p>
-                <p className="mt-2 text-sm text-gray-600">
+            <div className="flex h-full items-center justify-center bg-[#0b1220] p-6">
+              <div className="max-w-md rounded-2xl bg-white/5 p-6 ring-1 ring-white/10">
+                <p className="font-semibold text-white">Map unavailable</p>
+                <p className="mt-2 text-sm text-rose-300">{mapError}</p>
+                <p className="mt-2 text-sm text-white/50">
                   Add <code className="text-xs">VITE_MAPBOX_TOKEN</code> in Vercel
                   → Settings → Environment Variables and redeploy for instant map
                   loading.
@@ -160,7 +218,7 @@ function App() {
               </div>
             </div>
           ) : (
-            <div className="flex h-full items-center justify-center bg-gray-100 text-gray-500">
+            <div className="flex h-full items-center justify-center bg-[#0b1220] text-white/50">
               Loading map…
             </div>
           )}
@@ -177,10 +235,15 @@ function App() {
           {/* Turn-by-turn navigation */}
           {navigating && destination && profile && (
             <NavigationPanel
-              route={route ?? emptyRoute(profile)}
+              route={
+                route
+                  ? { ...route, steps: remainingSteps(route, location) }
+                  : emptyRoute(profile)
+              }
               destination={destination}
               profile={profile}
               loading={routeLoading || !route}
+              rerouting={rerouting}
               onChangeProfile={(p) => {
                 setRoute(null);
                 setProfile(p);
